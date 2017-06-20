@@ -19,6 +19,7 @@ import jpcap.NetworkInterface;
 import jpcap.packet.ICMPPacket;
 import jpcap.packet.IPPacket;
 import network.pcap.Jpcap;
+import network.util.PaneUtil;
 import network.util.Sort;
 import network.util.Util;
 
@@ -37,145 +38,62 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public class Main extends Application {
     final Pane ROOT_PANE = new Pane();
-    final Text bufferPool = new Text();
-    final FlowPane bufferBlock = new FlowPane();
-    public static final ConcurrentHashMap<Integer,VBox> bufferMaps = new ConcurrentHashMap<>();
+    public static final ConcurrentHashMap<Integer,Pane> bufferMaps = new ConcurrentHashMap<>();
     static final ConcurrentHashMap<Integer,List<IPPacket>> packList = new ConcurrentHashMap<>();
-    static final ConcurrentLinkedQueue<Integer> emptyLocation = new ConcurrentLinkedQueue<>();
     public static final Text allPackMsg = new Text("0");
     public static final Text shardPacksMsg = new Text("0");
     public static final Text waitMargePackMsg = new Text("0");
     public static final Text finshMargePackMsg = new Text("0");
+    static final VBox listVbox = new VBox();
+    public static VBox blockQueue = new VBox();
+
+
+    /**
+     * 添加一个包显示在缓存队列中
+     * */
+    public static void addBufferQueue(VBox vBox){
+        blockQueue.getChildren().add(vBox);
+    }
+
     public void start(Stage primaryStage) throws Exception {
         _init();
         primaryStage.setTitle("网络协议");
-        primaryStage.setScene(new Scene(ROOT_PANE, 1240, 1000));
+        primaryStage.setScene(new Scene(ROOT_PANE, 1500, 600));
         primaryStage.show();
         new Util(this).start();//开启util线程
+    }
+
+    public static void removeBufferQueue(VBox vBox){
+        blockQueue.getChildren().remove(vBox);
     }
 
     /**
      * 初始换控件
      * */
     private void _init() throws UnknownHostException {
-        bufferBlock.setLayoutX(400);
-        bufferBlock.setLayoutY(60);
-        bufferBlock.setPrefWidth(820);
-        bufferBlock.setMaxHeight(900);
-        bufferBlock.setHgap(10);
-        bufferPool.setWrappingWidth(820);
-        bufferPool.setLayoutX(400);
-        bufferPool.setFill(Color.BLUE);
-        bufferPool.setFont(Font.font(40));
-        bufferPool.setLayoutY(40);
-        bufferPool.setTextAlignment(TextAlignment.CENTER);
+        blockQueue.setSpacing(5);
+        ScrollPane scrollPane = new ScrollPane(blockQueue);
+        scrollPane.setStyle("-fx-border-color: #8dcfb7");
+        scrollPane.setPrefWidth(170);
+        scrollPane.setPrefHeight(580);
+        scrollPane.setLayoutX(400);
+        scrollPane.setLayoutY(10);
         Button start = new Button("开始抓包");
         start.setLayoutX(160);
         start.setLayoutY(80);
         showPackMsg();
-        for (int i = 0;i < 4;i ++) {
-            addBufferBlock(String.valueOf(i));
-            addEmptyBuffer(i);
-        }
-        ROOT_PANE.getChildren().addAll(bufferPool,bufferBlock,start,showNetworkCards());
+        listVbox.setSpacing(10);
+        ScrollPane list = new ScrollPane(listVbox);
+        list.setLayoutX(580);
+        list.setPrefWidth(900);
+        list.setPrefHeight(580);
+        ROOT_PANE.getChildren().addAll(scrollPane,list,start,showNetworkCards());
         start.setOnMouseClicked(event -> {
             if (Jpcap.getCard() == null) showMessageDialog("未选择网卡","错误");
             else{
                 Jpcap.start();
             }
         });
-    }
-
-    /**
-     * 空出一个缓存空区
-     * */
-    private synchronized void addEmptyBuffer(int i){
-        synchronized (emptyLocation){
-            for (Integer integer:emptyLocation){
-                if (integer == i)
-                    return;
-            }
-            emptyLocation.add(i);
-        }
-        String str = "缓存池--空区块有";
-        for (Integer integer:emptyLocation){
-            str += integer + "区  ";
-        }
-        bufferPool.setText(str);
-    }
-    /**
-     * 取出一个缓存空的区
-     * */
-    private synchronized Integer removeEmptyBuffer(){
-        Integer index;
-        synchronized (emptyLocation){
-           index = emptyLocation.poll();
-        }
-        String str = "缓存池--空区块有";
-        for (Integer integer:emptyLocation){
-            str += integer + "区  ";
-        }
-        bufferPool.setText(str);
-        return index;
-    }
-
-    /**
-     * 更改一个缓存区的内容
-     * */
-    public  void changBufferContent(IPPacket packet){
-        VBox vBox;
-        synchronized (bufferMaps){
-            vBox = bufferMaps.get(packet.ident);
-        }
-        for (Node node:vBox.getChildren()){
-            if (node instanceof Text && node.getId().equals("content")){
-                Map<String,Object> map = getBytes(packet);
-                if ((Boolean) map.get("type")) {
-                    ((Text) node).setFill(Color.GREEN);
-                        addEmptyBuffer(Integer.valueOf(vBox.getId()));
-                }
-                else
-                    ((Text) node).setFill(Color.BLACK);
-                ((Text) node).setText((String) map.get("string"));
-            }
-        }
-    }
-
-    /**
-     * 输出list里的ip数据包的数据
-     * */
-    private  Map<String,Object> getBytes(IPPacket packet){
-        List<IPPacket> list;
-        synchronized (packList){
-            list = packList.get(packet.ident);
-        }
-        IPPacket[] ipPackets = new IPPacket[list.size()];
-        for (int i = 0;i < ipPackets.length;i++)
-            ipPackets[i] = list.get(i);
-        StringBuffer stringBuffer = new StringBuffer("          统计信息如下\n接收分片顺序：\n");
-        ipPackets = Sort.sort(ipPackets);
-        boolean type = isCompleteIpPacket(ipPackets);
-        for (IPPacket ipPacket:list){
-            stringBuffer.append("(" + ipPacket.offset*8 + " - " + (ipPacket.offset*8 + ipPacket.length - 20) + ") --> ");
-        }
-        stringBuffer.append("\n\n重组如下");
-        String str="";
-        for (IPPacket ipPacket:ipPackets){
-            str += "(" + (ipPacket.offset*8) + " - " + (ipPacket.offset*8 + ipPacket.length - 20) + ") --> ";
-        }
-        str += "OK";
-        stringBuffer.append(str.replaceFirst(" --> OK",""));
-        if (type){
-            stringBuffer.append("\n\n重组后的数据如下：");
-            for (IPPacket packet1:ipPackets){
-                for (byte by:packet1.data)
-                stringBuffer.append((char) by);
-            }
-        }else stringBuffer.append("未完");
-        Map<String,Object> map = new HashMap<>();
-        map.put("type",type);
-        map.put("string",stringBuffer.toString());
-        return map;
     }
 
     /**
@@ -191,83 +109,54 @@ public class Main extends Application {
         return false;
     }
 
-    /**
-     * 在一个缓存区添加一个ip数据包 在list中排序取出在设置text内容
-     * */
-    public void addPack(IPPacket packet){
-        boolean bool;
+
+    public void addBufferBlock(Map<String,Object> map){
+        Pane pane;
         synchronized (bufferMaps){
-            bool = bufferMaps.containsKey(packet.ident);
+            pane = bufferMaps.get(((IPPacket)map.get("pack")).ident);
         }
-        if (bool){
-            synchronized (packList){
-                packList.get(packet.ident).add(packet);
-            }
-            changBufferContent(packet);
-        }else {
-            synchronized (bufferMaps) {
-                bufferMaps.put(packet.ident, writeBuffer(packet));
-                changBufferContent(packet);
-            }
-        }
+        addBufferBlock(map,pane);
     }
 
-
-
     /**
-     * 在一个空的缓存区写入内容
+     * 新增一行分组
      * */
-    private VBox writeBuffer(IPPacket packet){
-        VBox vBox = null;
-        String id = String.valueOf(removeEmptyBuffer());
-        for (Node node:bufferBlock.getChildren()){
-            if (node instanceof ScrollPane && node.getId().equals(id)){
-                vBox = (VBox) ((ScrollPane) node).getContent();
-                node.setStyle("-fx-border-color: #cf5b11");
-                List<IPPacket> lists = new ArrayList<>();
-                lists.add(packet);
-                synchronized (packList){
-                    packList.put(packet.ident,lists);
-                }
-                for (Node text:((VBox)(((ScrollPane) node).getContent())).getChildren()){
-                    if (text instanceof Text){
-                        if (text.getId().equals("msg")) {
-                            ((Text) text).setText(packet.src_ip.getHostAddress() + "的缓存区");
-                        }
-                    }
-                }
+    private void addBufferBlock(Map<String,Object> map,Pane pane){
+        if (pane == null){
+            pane = new Pane();
+            pane.setPrefHeight(PaneUtil.BLOCKHEIGHT);
+//            pane.setStyle("-fx-border-color: #54cfcf");
+            packList.put(((IPPacket)map.get("pack")).ident,new ArrayList<>());
+            synchronized (bufferMaps){
+                bufferMaps.put(((IPPacket)map.get("pack")).ident,pane);
+            }
+            synchronized (listVbox){
+                listVbox.getChildren().add(pane);
             }
         }
-        return vBox;
+        VBox vBox = (VBox) map.get("vbox");
+        IPPacket packet = (IPPacket) map.get("pack");
+        vBox.setLayoutX(packet.offset*8/10);
+        vBox.setLayoutY(1);
+        packList.get(((IPPacket)map.get("pack")).ident).add((IPPacket) map.get("pack"));
+        List<IPPacket> list = packList.get(((IPPacket)map.get("pack")).ident);
+        IPPacket[] packets = new IPPacket[list.size()];
+        for (int i = 0;i < list.size();i ++)
+            packets[i] = list.get(i);
+        Sort.sort(packets);
+        if (isCompleteIpPacket(packets)){
+            pane.getChildren().add(setOk(packets[packets.length - 1]));
+        }
+        pane.getChildren().add(vBox);
     }
 
-
-
-    /**
-     * 添加一个缓存区
-     * */
-    private void addBufferBlock(String id){
-        ScrollPane scrollPane = new ScrollPane();
-        scrollPane.setPrefWidth(400);
-        VBox buffer = new VBox();
-        scrollPane.setId(id);
-        buffer.setId(id);
-        buffer.setPrefWidth(380);
-        buffer.setPrefHeight(450);
-        buffer.setLayoutX(10);
-        buffer.setLayoutY(10);
-        Text msg = new Text();
-        msg.setId("msg");
-        msg.setWrappingWidth(380);
-        msg.setFont(Font.font(22));
-        msg.setFill(Color.RED);
-        msg.setTextAlignment(TextAlignment.CENTER);
-        Text content = new Text();
-        content.setId("content");
-        content.setWrappingWidth(380);
-        buffer.getChildren().addAll(msg,content);
-        scrollPane.setContent(buffer);
-        bufferBlock.getChildren().add(scrollPane);
+    private Text setOk(IPPacket ipPacket){
+        Text ok = new Text("重组完成");
+        ok.setLayoutY(20);
+        ok.setLayoutX((ipPacket.offset * 8 + (ipPacket.length - 20))/10 + 5);
+        ok.setFont(Font.font(20));
+        ok.setFill(Color.GREEN);
+        return ok;
     }
 
     /**
@@ -358,14 +247,6 @@ public class Main extends Application {
     }
 
 
-    public boolean isFull(){
-        boolean bool;
-        synchronized (emptyLocation){
-            bool = !emptyLocation.isEmpty();
-        }
-        return bool;
-    }
-
     public static void showMessageDialog( String message, String title) {
         Stage stage = new Stage();
         stage.setTitle(title);
@@ -380,11 +261,6 @@ public class Main extends Application {
         stage.setScene(new Scene(vBox, 200, 100));
         stage.show();
         ok.setOnMouseClicked(event -> stage.close());
-    }
-    public boolean isHave(int ident){
-        synchronized (bufferMaps){
-            return bufferMaps.containsKey(ident);
-        }
     }
     public static void main(String[] args) {
         launch(args);

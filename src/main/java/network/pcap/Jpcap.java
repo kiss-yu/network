@@ -1,16 +1,23 @@
 package network.pcap;
 
+import javafx.application.Platform;
+import javafx.scene.layout.VBox;
 import jpcap.JpcapCaptor;
 import jpcap.NetworkInterface;
 import jpcap.packet.*;
+import network.util.PaneUtil;
 import network.util.Util;
 import network.windows.Main;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.util.HashMap;
+import java.util.Map;
 
 public class Jpcap{
     public final static ThreadLocal<NetworkInterface> card = new ThreadLocal<NetworkInterface>();
+
+
     /**
      * 循环抓包
      * */
@@ -21,14 +28,29 @@ public class Jpcap{
             if(tmp instanceof IPPacket){
                 Util.allPacksCount++;
                 setMsg();
-                if ((((IPPacket) tmp).length >= 1500 || ((IPPacket) tmp).offset > 0) && !networkInterface.addresses[1].address.equals(((IPPacket) tmp).src_ip)) {
-                    Util.ipPack.add((IPPacket) tmp);
+                if ((!((IPPacket) tmp).more_frag || ((IPPacket) tmp).offset > 0) && !networkInterface.addresses[1].address.equals(((IPPacket) tmp).src_ip)) {
+                    add((IPPacket) tmp);
                     Util.shardPacksCount++;
                     Util.addWaitMargePacksCount();
                 }
             }
         }
     }
+
+
+
+
+    public static void add(IPPacket packet){
+        Platform.runLater(() -> {
+            Map<String,Object> map = new HashMap<>();
+            VBox vBox = PaneUtil.getOneBlock(packet);
+            map.put("pack",packet);
+            map.put("vbox",vBox);
+            Util.ipPack.add(map);
+            Main.addBufferQueue(vBox);
+        });
+    }
+
 
     /**
      *设置网卡
